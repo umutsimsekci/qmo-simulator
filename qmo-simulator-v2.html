@@ -118,6 +118,8 @@
             neutral: "border-slate-300 bg-white text-slate-800"
         };
 
+        const extendedDescription = "This simulator operationalizes the Question-Model-Outcome (QMO) decision-tree framework for interpreting reported improvement in animal models of Alzheimer's disease and dementia-relevant mechanisms. It is designed to help researchers distinguish between behavioral rescue, target engagement, circuit-preserving or neuroprotective effects, and stronger disease-modifying interpretations. The tool emphasizes that a high score alone is not enough: the supported claim depends on whether the evidence path includes direct target engagement, treatment-appropriate timing, synapse or circuit preservation, longitudinal trajectory change, and concordant biomarker-behavior outcomes. The simulator is intended as an interpretation and manuscript-language aid, not as empirical validation, diagnostic guidance, or a substitute for study-specific statistical review.";
+
         function getSelectedLabel(step, answers) {
             const selected = answers[step.id];
             return step.options.find(option => option.value === selected)?.label || "Not answered";
@@ -252,6 +254,9 @@
                 `Score: ${assessment.score}/100`,
                 `Claim: ${assessment.claim.title}`,
                 "",
+                "## Extended Description",
+                extendedDescription,
+                "",
                 "## Decision Path",
                 ...steps.map(step => `- ${step.title}: ${getSelectedLabel(step, answers)}`),
                 "",
@@ -306,6 +311,18 @@
                                     <i className="fas fa-rotate-right"></i>
                                     Reset
                                 </button>
+                            </div>
+
+                            <div className="rounded-md border border-sky-200 bg-sky-50 p-4">
+                                <div className="flex gap-3">
+                                    <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-sky-700 text-white">
+                                        <i className="fas fa-circle-info text-sm"></i>
+                                    </div>
+                                    <div>
+                                        <h2 className="text-sm font-black uppercase tracking-[0.14em] text-sky-900">Extended Description</h2>
+                                        <p className="mt-2 text-sm leading-6 text-sky-950">{extendedDescription}</p>
+                                    </div>
+                                </div>
                             </div>
 
                             <div className="grid gap-3 md:grid-cols-2">
