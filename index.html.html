@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Advanced Q-M-O Decision Tree Simulator</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- FontAwesome -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    
+    <!-- React & ReactDOM -->
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    
+    <!-- Babel -->
+    <script src="https://unpkg.com/@babel/standalone@7.23.6/babel.min.js"></script>
+</head>
+<body class="bg-gray-100">
+    <div id="root"></div>
+
+    <script type="text/babel" data-presets="react" data-type="module">
+        /* @jsx React.createElement */
+        const { useState, useEffect } = React;
+
+        const DecisionTreeSimulator = () => {
+            const [answers, setAnswers] = useState({});
+            const [score, setScore] = useState(0);
+            const [claim, setClaim] = useState({ title: "Awaiting Data", description: "Please begin answering the steps on the left.", type: "neutral" });
+            const [isGenerating, setIsGenerating] = useState(false);
+            const [aiDraft, setAiDraft] = useState("");
+            const [apiError, setApiError] = useState("");
+
+            const steps = [
+                {
+                    id: 'modifiers',
+                    icon: <i className="fas fa-dna text-xl"></i>,
+                    title: "1. Biological Modifiers",
+                    description: "Were sex balance and genetic background (e.g., APOE/TREM2) controlled?",
+                    options: [
+                        { label: "Yes, both sexes and relevant genotypes were modeled.", value: "yes", points: 20 },
+                        { label: "Partially, single sex or standard wild-type only.", value: "partial", points: 10 },
+                        { label: "No, heterogeneity was not controlled.", value: "no", points: 0 }
+                    ]
+                },
+                {
+                    id: 'target',
+                    icon: <i className="fas fa-heartbeat text-xl"></i>,
+                    title: "2. Target Engagement",
+                    description: "Did the targeted pathology or biomarker (e.g., soluble Aβ/tau) change in the expected direction?",
+                    options: [
+                        { label: "Yes, it was directly measured and changed.", value: "yes", points: 20 },
+                        { label: "No, no change (or not measured).", value: "no", points: 0 }
+                    ]
+                },
+                {
+                    id: 'timecourse',
+                    icon: <i className="fas fa-sync-alt text-xl"></i>,
+                    title: "3. Translation-Aligned Timecourse",
+                    description: "Was a washout period included for short-acting drugs, or sustained exposure verified for long-acting ones?",
+                    options: [
+                        { label: "Yes, follow-up matched the pharmacology.", value: "yes", points: 15 },
+                        { label: "No, measured only during acute dosing.", value: "no", points: 0 }
+                    ]
+                },
+                {
+                    id: 'circuit',
+                    icon: <i className="fas fa-brain text-xl"></i>,
+                    title: "4. Synaptic and Circuit Preservation",
+                    description: "Is there network-level evidence of preservation (e.g., electrophysiology, connectivity, in vivo imaging)?",
+                    options: [
+                        { label: "Yes, functional circuit and synapse preservation confirmed.", value: "yes", points: 20 },
+                        { label: "Partial, only histological/structural evidence (e.g., cell counts).", value: "partial", points: 10 },
+                        { label: "No, only a behavioral score is present.", value: "no", points: 0 }
+                    ]
+                },
+                {
+                    id: 'trajectory',
+                    icon: <i className="fas fa-chart-line text-xl"></i>,
+                    title: "5. Longitudinal Trajectory (Slope) Change",
+                    description: "Was a slowing in the rate of decline measured (slope), rather than a single-timepoint 'rescue'?",
+                    options: [
+                        { label: "Yes, trajectory/slope change confirmed via repeated measures.", value: "yes", points: 15 },
+                        { label: "No, only terminal/single-timepoint analysis was performed.", value: "no", points: 0 }
+                    ]
+                },
+                {
+                    id: 'concordance',
+                    icon: <i className="fas fa-code-branch text-xl"></i>,
+                    title: "6. Biomarker-Behavior Concordance",
+                    description: "Do biomarkers, circuit measures, and behavioral outcomes align?",
+                    options: [
+                        { label: "Yes, all metrics move concordantly.", value: "yes", points: 10 },
+                        { label: "No, paradoxical dissociation (e.g., plaques reduced but decline continues).", value: "no", points: 0 }
+                    ]
+                }
+            ];
+
+            const handleAnswer = (stepId, value, points) => {
+                setAnswers(prev => ({ ...prev, [stepId]: { value, points } }));
+            };
+
+            useEffect(() => {
+                let totalScore = 0;
+                let answeredCount = 0;
+
+                Object.values(answers).forEach(ans => {
+                    totalScore += ans.points;
+                    answeredCount++;
+                });
+
+                setScore(totalScore);
+
+                if (answeredCount === 0) {
+                    setClaim({ title: "Awaiting Data", description: "Please begin answering the steps on the left.", type: "neutral" });
+                } else if (answers.target?.value === 'no') {
+                    setClaim({
+                        title: "Symptomatic or Off-Target Effect",
+                        description: "Without target engagement, disease modification cannot be claimed. Behavioral changes are likely acute symptomatic or off-target effects.",
+                        type: "danger"
+                    });
+                } else if (answers.modifiers?.value === 'no') {
+                    setClaim({
+                        title: "Confined Claim",
+                        description: "Lack of sex or genetic background controls limits generalizability. Claims should be strictly bounded to the specific age/sex/strain tested.",
+                        type: "warning"
+                    });
+                } else if (answers.target?.value === 'yes' && answers.timecourse?.value === 'no') {
+                    setClaim({
+                        title: "Acute/Transient Performance Enhancement",
+                        description: "Target engagement is present, but lacks washout/durability checks. The effect may be acute pharmacological carryover rather than durable neuroprotection.",
+                        type: "warning"
+                    });
+                } else if (answers.concordance?.value === 'no' && answeredCount > 4) {
+                    setClaim({
+                        title: "Mechanistic Dissociation",
+                        description: "Biomarkers and behavior disagree. Do not claim therapeutic success; explicitly report the dissociation as a mechanistically informative finding.",
+                        type: "warning"
+                    });
+                } else if (totalScore >= 85) {
+                    setClaim({
+                        title: "Strong Disease-Modifying Claim",
+                        description: "Excellent! Supported by controlled modifiers, network-level preservation, concordance, and trajectory change. Strong justification for translational/disease-modifying claims.",
+                        type: "success"
+                    });
+                } else if (totalScore >= 50) {
+                    setClaim({
+                        title: "Circuit-Preserving / Neuroprotective Effect",
+                        description: "Network and synapse preservation evident. A valid mechanistic and therapeutic claim, though lacking full trajectory or heterogeneity data slightly bounds the scope.",
+                        type: "info"
+                    });
+                } else {
+                    setClaim({
+                        title: "Basic Target Engagement",
+                        description: "Target engaged, but insufficient evidence for network preservation or durability. Frame as a mechanistic finding rather than a clinical/translational benefit.",
+                        type: "neutral"
+                    });
+                }
+            }, [answers]);
+
+            const reset = () => {
+                setAnswers({});
+                setScore(0);
+                setAiDraft("");
+                setApiError("");
+            };
+
+            const getCardStyle = (type) => {
+                switch (type) {
+                    case 'success': return 'bg-green-50 border-green-500 text-green-900';
+                    case 'warning': return 'bg-yellow-50 border-yellow-500 text-yellow-900';
+                    case 'danger': return 'bg-red-50 border-red-500 text-red-900';
+                    case 'info': return 'bg-blue-50 border-blue-500 text-blue-900';
+                    default: return 'bg-gray-50 border-gray-300 text-gray-800';
+                }
+            };
+
+            const getIconForClaim = (type) => {
+                switch (type) {
+                    case 'success': return 'fa-shield-check text-green-600';
+                    case 'warning': return 'fa-exclamation-circle text-yellow-600';
+                    case 'danger': return 'fa-exclamation-triangle text-red-600';
+                    case 'info': return 'fa-brain text-blue-600';
+                    default: return 'fa-heartbeat text-gray-500';
+                }
+            };
+
+            const generateDraftWithGemini = async () => {
+                setIsGenerating(true);
+                setApiError("");
+                setAiDraft("");
+
+                const promptText = `I am a neuroscience researcher writing a manuscript on an animal model of Alzheimer's disease/dementia.
+Based on the Q-M-O (Question-Model-Outcome) decision tree framework, I evaluated my study as follows:
+Score: ${score}/100
+Translational Claim Limit: ${claim.title} - ${claim.description}
+
+My Experimental Design Answers:
+${steps.map(s => {
+   const ans = answers[s.id];
+   if(!ans) return `- ${s.title}: Not answered`;
+   const opt = s.options.find(o => o.value === ans.value);
+   return `- ${s.title}: ${opt.label}`;
+}).join("\n")}
+
+Based on these inputs, write a concise, highly professional academic paragraph (in English) suitable for the 'Discussion' or 'Limitations' section of a scientific manuscript. The paragraph should accurately state the translational strength and explicitly acknowledge any mechanistic boundaries or limitations (e.g., lack of washout, lack of sex balance, dissociation) without over-claiming. Write ONLY the paragraph text, no introductions or conclusions.`;
+
+                try {
+                    const apiKey = ""; // Canvas runtime environment auto-injects the API key if supported, otherwise replace with real key for local testing
+                    const payload = { 
+                        contents: [{ parts: [{ text: promptText }] }] 
+                    };
+                    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+
+                    let attempt = 0;
+                    let delay = 1000;
+                    let success = false;
+
+                    while (attempt < 5 && !success) {
+                        try {
+                            const response = await fetch(url, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify(payload)
+                            });
+                            
+                            if (!response.ok) {
+                                throw new Error(`HTTP error! status: ${response.status}`);
+                            }
+                            
+                            const result = await response.json();
+                            const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
+                            
+                            if (text) {
+                                setAiDraft(text);
+                                success = true;
+                            } else {
+                                throw new Error("API response was empty or malformed.");
+                            }
+                        } catch (err) {
+                            attempt++;
+                            if (attempt >= 5) {
+                                throw err;
+                            } else {
+                                await new Promise(res => setTimeout(res, delay));
+                                delay *= 2;
+                            }
+                        }
+                    }
+                } catch (err) {
+                    setApiError("An error occurred while generating the draft: " + err.message);
+                } finally {
+                    setIsGenerating(false);
+                }
+            };
+
+            return (
+                <div className="min-h-screen p-4 md:p-8 font-sans">
+                    <div className="max-w-6xl mx-auto space-y-6">
+                        
+                        {/* Header */}
+                        <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <h1 className="text-2xl font-bold text-gray-800">Advanced Q-M-O Decision Tree Simulator</h1>
+                                    <p className="text-gray-600 mt-2">Evaluate the translational strength and mechanistic boundaries of "improvement" claims in animal models.</p>
+                                </div>
+                                <button 
+                                    onClick={reset}
+                                    className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors font-medium"
+                                >
+                                    <i className="fas fa-sync-alt"></i> Reset
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="flex flex-col lg:flex-row gap-6">
+                            
+                            {/* Left Column: Interactive Steps */}
+                            <div className="w-full lg:w-2/3 space-y-4">
+                                {steps.map((step, index) => {
+                                    const isAnswered = answers[step.id] !== undefined;
+                                    const isEnabled = index === 0 || answers[steps[index - 1].id] !== undefined;
+                                    
+                                    if (!isEnabled) return null;
+
+                                    return (
+                                        <div key={step.id} className={`bg-white rounded-xl shadow-sm border-l-4 transition-all duration-500 ${isAnswered ? 'border-indigo-500' : 'border-gray-300 ring-2 ring-indigo-100'}`}>
+                                            <div className="p-5">
+                                                <div className="flex items-start gap-4">
+                                                    <div className={`p-4 rounded-full flex items-center justify-center w-12 h-12 ${isAnswered ? 'bg-indigo-100 text-indigo-600' : 'bg-gray-100 text-gray-500'}`}>
+                                                        {step.icon}
+                                                    </div>
+                                                    <div className="flex-1">
+                                                        <h3 className="text-lg font-bold text-gray-800">{step.title}</h3>
+                                                        <p className="text-gray-600 mt-1 mb-4 text-sm">{step.description}</p>
+                                                        
+                                                        <div className="grid grid-cols-1 gap-2">
+                                                            {step.options.map((opt) => (
+                                                                <button
+                                                                    key={opt.value}
+                                                                    onClick={() => handleAnswer(step.id, opt.value, opt.points)}
+                                                                    className={`text-left px-4 py-3 rounded-lg border text-sm font-medium transition-all duration-200 flex justify-between items-center ${
+                                                                        answers[step.id]?.value === opt.value
+                                                                            ? 'bg-indigo-50 border-indigo-500 text-indigo-700'
+                                                                            : 'bg-white border-gray-200 text-gray-700 hover:border-indigo-300 hover:bg-gray-50'
+                                                                    }`}
+                                                                >
+                                                                    <span>{opt.label}</span>
+                                                                    {answers[step.id]?.value === opt.value && <i className="fas fa-check-circle text-indigo-600 text-lg"></i>}
+                                                                </button>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+
+                            {/* Right Column: Dashboard */}
+                            <div className="w-full lg:w-1/3">
+                                <div className="sticky top-6 space-y-6">
+                                    
+                                    {/* Score Card */}
+                                    <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
+                                        <h3 className="text-sm uppercase tracking-wider font-semibold text-gray-500 mb-2">Translational Confidence</h3>
+                                        <div className="flex items-end gap-2">
+                                            <span className="text-5xl font-black text-indigo-600">{score}</span>
+                                            <span className="text-xl text-gray-400 mb-1">/ 100</span>
+                                        </div>
+                                        <div className="w-full bg-gray-200 rounded-full h-2.5 mt-4">
+                                            <div className="bg-indigo-600 h-2.5 rounded-full transition-all duration-1000 ease-out" style={{ width: `${score}%` }}></div>
+                                        </div>
+                                    </div>
+
+                                    {/* Dynamic Claim Result */}
+                                    <div className={`rounded-xl shadow-sm p-6 border-2 transition-all duration-500 ${getCardStyle(claim.type)}`}>
+                                        <div className="flex items-center gap-3 mb-4">
+                                            <i className={`fas ${getIconForClaim(claim.type)} text-3xl`}></i>
+                                            <h3 className="text-lg font-bold leading-tight">{claim.title}</h3>
+                                        </div>
+                                        <p className="text-sm font-medium opacity-90 leading-relaxed">
+                                            {claim.description}
+                                        </p>
+                                    </div>
+
+                                    {/* Tips */}
+                                    {Object.keys(answers).length > 0 && (
+                                        <div className="bg-gray-50 rounded-xl p-5 border border-gray-200">
+                                            <h4 className="text-sm font-bold text-gray-700 mb-3 flex items-center gap-2">
+                                                <i className="fas fa-arrow-right"></i> Publication Guidance
+                                            </h4>
+                                            <ul className="space-y-3 text-xs text-gray-600">
+                                                {answers.modifiers?.value === 'no' && (
+                                                    <li className="flex gap-2 items-start"><i className="fas fa-times-circle text-red-500 mt-0.5"></i> Avoid broad "dementia" claims. Restrict language to the specific sex/age tested.</li>
+                                                )}
+                                                {answers.timecourse?.value === 'no' && answers.target?.value === 'yes' && (
+                                                    <li className="flex gap-2 items-start"><i className="fas fa-exclamation-circle text-yellow-500 mt-0.5"></i> Avoid "disease-modifying" language. Frame the result as "symptomatic" or "acute rescue".</li>
+                                                )}
+                                                {answers.circuit?.value === 'partial' && (
+                                                    <li className="flex gap-2 items-start"><i className="fas fa-exclamation-circle text-yellow-500 mt-0.5"></i> Cell counts alone are insufficient for "network rescue" claims. Soften the neuroprotection language.</li>
+                                                )}
+                                                {answers.concordance?.value === 'no' && (
+                                                    <li className="flex gap-2 items-start"><i className="fas fa-exclamation-triangle text-red-500 mt-0.5"></i> Do not bury the dissociation in the Discussion. Explaining the mechanistic mismatch adds scientific value.</li>
+                                                )}
+                                                {score >= 85 && (
+                                                    <li className="flex gap-2 items-start"><i className="fas fa-check-circle text-green-500 mt-0.5"></i> The study holds strong argumentation suitable for a high-impact translational neuroscience journal.</li>
+                                                )}
+                                            </ul>
+                                        </div>
+                                    )}
+
+                                    {/* AI Assistant */}
+                                    {Object.keys(answers).length > 0 && (
+                                        <div className="bg-gradient-to-br from-indigo-50 to-purple-50 rounded-xl p-6 border border-indigo-100 shadow-sm mt-6">
+                                            <h4 className="text-md font-bold text-indigo-900 mb-2 flex items-center gap-2">
+                                                <i className="fas fa-magic text-indigo-600"></i> AI Manuscript Assistant
+                                            </h4>
+                                            <p className="text-xs text-indigo-700 mb-4">
+                                                Generate a professional academic draft for your Discussion or Limitations section based on your selections and score.
+                                            </p>
+                                            
+                                            <button 
+                                                onClick={generateDraftWithGemini}
+                                                disabled={isGenerating}
+                                                className="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors flex justify-center items-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed shadow-sm"
+                                            >
+                                                {isGenerating ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-magic"></i>}
+                                                {isGenerating ? "Generating Draft..." : "Generate Academic Draft"}
+                                            </button>
+                                            
+                                            {apiError && (
+                                                <div className="mt-3 text-xs text-red-600 font-medium">
+                                                    {apiError}
+                                                </div>
+                                            )}
+
+                                            {aiDraft && (
+                                                <div className="mt-4 p-4 bg-white rounded-lg border border-indigo-100 shadow-inner">
+                                                    <h5 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Generated Draft</h5>
+                                                    <div className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap">{aiDraft}</div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+
+                                </div>
+                            </div>
+
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<DecisionTreeSimulator />);
+    </script>
+</body>
+</html>
