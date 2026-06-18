@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QMO Decision Tree Simulator v2</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone@7.23.6/babel.min.js"></script>
+</head>
+<body class="bg-slate-100">
+    <div id="root"></div>
+
+    <script type="text/babel" data-presets="react">
+        const { useMemo, useState } = React;
+
+        const modelClasses = [
+            "Amyloid transgenic / APP overexpression",
+            "Physiological-expression knock-in or late-onset risk model",
+            "Tau model",
+            "Vascular / hypoperfusion model",
+            "Mixed-pathology model",
+            "Aged wild-type or comorbidity-enriched model",
+            "Other / not specified"
+        ];
+
+        const interventionClasses = [
+            "Pathology-targeting intervention",
+            "Symptomatic / performance-modulating intervention",
+            "Circuit-stabilizing intervention",
+            "Anti-inflammatory or glial-state intervention",
+            "Vascular / perfusion intervention",
+            "Other / not specified"
+        ];
+
+        const steps = [
+            {
+                id: "modifiers",
+                icon: "fa-dna",
+                short: "Modifiers",
+                title: "1. Cross-Cutting Biological Modifiers",
+                description: "Were sex, age, strain, APOE/TREM2 or other relevant genetic and comorbidity backgrounds handled explicitly?",
+                options: [
+                    { label: "Yes, stratified or interaction-aware reporting was included.", value: "yes", points: 20 },
+                    { label: "Partially, one key modifier was controlled but scope remains narrow.", value: "partial", points: 10 },
+                    { label: "No, heterogeneity was not controlled or reported.", value: "no", points: 0 }
+                ]
+            },
+            {
+                id: "target",
+                icon: "fa-bullseye",
+                short: "Target",
+                title: "2. Target Engagement",
+                description: "Did the intended pathology, pathway, or biomarker change in the expected direction?",
+                options: [
+                    { label: "Yes, direct target engagement was measured and changed.", value: "yes", points: 20 },
+                    { label: "Proxy only, the target was inferred but not directly shown.", value: "proxy", points: 8 },
+                    { label: "No, target engagement was absent, unclear, or not measured.", value: "no", points: 0 }
+                ]
+            },
+            {
+                id: "timecourse",
+                icon: "fa-clock",
+                short: "Timecourse",
+                title: "3. Treatment-Appropriate Timecourse",
+                description: "Was follow-up matched to the pharmacology, including washout where relevant or sustained exposure verification where needed?",
+                options: [
+                    { label: "Yes, timing was matched to mechanism and exposure.", value: "yes", points: 15 },
+                    { label: "Partially, timing was plausible but durability remains uncertain.", value: "partial", points: 7 },
+                    { label: "No, only acute dosing or a poorly aligned window was tested.", value: "no", points: 0 }
+                ]
+            },
+            {
+                id: "circuit",
+                icon: "fa-brain",
+                short: "Circuit",
+                title: "4. Synapse or Circuit Preservation",
+                description: "Is there evidence of neural-system preservation beyond aggregate pathology or a behavioral score?",
+                options: [
+                    { label: "Yes, functional synapse/circuit preservation was shown.", value: "yes", points: 20 },
+                    { label: "Structural only, histology or cell counts support a narrower claim.", value: "structural", points: 10 },
+                    { label: "No, the evidence is behavioral only or pathology-only.", value: "no", points: 0 }
+                ]
+            },
+            {
+                id: "trajectory",
+                icon: "fa-chart-line",
+                short: "Trajectory",
+                title: "5. Longitudinal Trajectory or Slope Change",
+                description: "Was slowed decline or trajectory change measured rather than a single terminal rescue?",
+                options: [
+                    { label: "Yes, repeated measures support a slope or trajectory effect.", value: "yes", points: 15 },
+                    { label: "Partial, repeated observations exist but slope inference is weak.", value: "partial", points: 7 },
+                    { label: "No, only a single endpoint or terminal comparison was used.", value: "no", points: 0 }
+                ]
+            },
+            {
+                id: "concordance",
+                icon: "fa-code-branch",
+                short: "Concordance",
+                title: "6. Biomarker-Behavior Concordance",
+                description: "Do biomarkers, circuit measures, and behavioral outcomes move in a coherent direction?",
+                options: [
+                    { label: "Yes, biomarker, circuit, and behavior are concordant.", value: "yes", points: 10 },
+                    { label: "Mixed, some domains align but the pattern is incomplete.", value: "mixed", points: 5 },
+                    { label: "No, the result shows a meaningful dissociation.", value: "no", points: 0 }
+                ]
+            }
+        ];
+
+        const palettes = {
+            success: "border-emerald-600 bg-emerald-50 text-emerald-950",
+            info: "border-sky-600 bg-sky-50 text-sky-950",
+            warning: "border-amber-500 bg-amber-50 text-amber-950",
+            danger: "border-rose-600 bg-rose-50 text-rose-950",
+            neutral: "border-slate-300 bg-white text-slate-800"
+        };
+
+        function getSelectedLabel(step, answers) {
+            const selected = answers[step.id];
+            return step.options.find(option => option.value === selected)?.label || "Not answered";
+        }
+
+        function buildAssessment(answers, context) {
+            const answeredCount = Object.keys(answers).length;
+            const score = steps.reduce((total, step) => {
+                const selected = answers[step.id];
+                const option = step.options.find(item => item.value === selected);
+                return total + (option?.points || 0);
+            }, 0);
+
+            const missing = [];
+            const warnings = [];
+            const path = steps.map(step => ({
+                ...step,
+                value: answers[step.id],
+                label: getSelectedLabel(step, answers),
+                complete: Boolean(answers[step.id])
+            }));
+
+            if (!answeredCount) {
+                return {
+                    score,
+                    path,
+                    missing: ["Complete the decision points to generate an interpretation."],
+                    warnings: [],
+                    claim: {
+                        title: "Awaiting Study Inputs",
+                        type: "neutral",
+                        interpretation: "Start with the model and intervention context, then answer the decision points in order.",
+                        wording: "No translational claim should be generated before the evidence path is specified."
+                    }
+                };
+            }
+
+            if (!answers.modifiers || answers.modifiers === "no") missing.push("sex, age, strain, genotype, or comorbidity modifier plan");
+            if (!answers.target || answers.target !== "yes") missing.push("direct target-engagement readout");
+            if (!answers.timecourse || answers.timecourse !== "yes") missing.push("treatment-appropriate follow-up or washout/durability evidence");
+            if (!answers.circuit || answers.circuit !== "yes") missing.push("functional synapse/circuit preservation endpoint");
+            if (!answers.trajectory || answers.trajectory !== "yes") missing.push("longitudinal trajectory or slope analysis");
+            if (!answers.concordance || answers.concordance !== "yes") missing.push("concordant biomarker-circuit-behavior pattern");
+
+            if (answers.modifiers === "no") warnings.push("Generalizability is background-limited; avoid sex-general, genotype-general, or late-life mixed-pathology claims.");
+            if (answers.target === "proxy") warnings.push("Target engagement is inferred rather than demonstrated; mechanism language should be softened.");
+            if (answers.timecourse === "no") warnings.push("Acute carryover, practice, or exposure-timing effects remain plausible.");
+            if (answers.circuit === "structural") warnings.push("Structural preservation supports a narrower claim than functional network rescue.");
+            if (answers.concordance === "no") warnings.push("The dissociation should be reported explicitly rather than treated as a failed secondary endpoint.");
+
+            let claim;
+            if (answers.target === "no" || answers.target === "proxy") {
+                claim = {
+                    title: answers.target === "proxy" ? "Target-Engagement Uncertain" : "Symptomatic, Off-Target, or Assay-Specific Effect",
+                    type: answers.target === "proxy" ? "warning" : "danger",
+                    interpretation: "Without direct target engagement, a disease-modifying or pathway-specific mechanism claim remains unsupported.",
+                    wording: "Frame the finding as behavioral improvement with incomplete mechanistic attribution."
+                };
+            } else if (answers.timecourse === "no") {
+                claim = {
+                    title: "Acute or Transient Performance Effect",
+                    type: "warning",
+                    interpretation: "The target changed, but the timing does not rule out acute carryover or short-horizon rescue.",
+                    wording: "Use target-engaging or acute rescue language rather than disease-modifying language."
+                };
+            } else if (answers.circuit === "no") {
+                claim = {
+                    title: "Target-Engaging Finding Without Network Preservation",
+                    type: "neutral",
+                    interpretation: "The biological target appears affected, but there is no evidence that synaptic or circuit function was preserved.",
+                    wording: "Claim mechanistic target engagement, not neuroprotection or circuit rescue."
+                };
+            } else if (answers.circuit === "structural") {
+                claim = {
+                    title: "Structurally Supported Neuroprotective Signal",
+                    type: "info",
+                    interpretation: "The evidence supports a bounded preservation claim, but functional network rescue remains incompletely demonstrated.",
+                    wording: "Use cautious neuroprotective language and specify that functional circuit confirmation is pending."
+                };
+            } else if (answers.trajectory !== "yes") {
+                claim = {
+                    title: "Circuit-Preserving Effect Without Disease-Modification Evidence",
+                    type: "info",
+                    interpretation: "Circuit-level preservation is present, but single-endpoint or weak trajectory evidence limits disease-modifying interpretation.",
+                    wording: "Frame the result as circuit-preserving or neuroprotective, not as slowed disease progression."
+                };
+            } else if (answers.concordance === "no") {
+                claim = {
+                    title: "Trajectory Signal With Mechanistic Dissociation",
+                    type: "warning",
+                    interpretation: "The trajectory result is promising, but discordant biomarker, circuit, and behavioral evidence requires a narrower mechanistic explanation.",
+                    wording: "Report the dissociation as an interpretive boundary and avoid cherry-picking the favorable endpoint."
+                };
+            } else if (answers.concordance === "mixed" || answers.modifiers !== "yes" || answers.timecourse === "partial" || answers.trajectory === "partial") {
+                claim = {
+                    title: "Moderately Strong Translational Claim",
+                    type: "info",
+                    interpretation: "The core QMO path is largely satisfied, but one or more boundary conditions still narrow the claim.",
+                    wording: "Use disease-relevant or trajectory-associated language with explicit limits."
+                };
+            } else {
+                claim = {
+                    title: "Strong Disease-Modifying Claim",
+                    type: "success",
+                    interpretation: "The evidence path supports target engagement, treatment-aligned timing, circuit preservation, trajectory change, and concordant outcomes.",
+                    wording: "A disease-modifying interpretation is defensible if the model context matches the intended translational question."
+                };
+            }
+
+            return { score, path, missing, warnings, claim, context };
+        }
+
+        function makeDraft(assessment, answers, context) {
+            const model = context.modelClass || "the selected animal model";
+            const intervention = context.interventionClass || "the intervention";
+            const missingText = assessment.missing.length
+                ? `Key interpretive boundaries include ${assessment.missing.slice(0, 3).join(", ")}.`
+                : "The minimum QMO outcome path is substantially satisfied.";
+            const modifierText = answers.modifiers === "yes"
+                ? "Because relevant biological modifiers were handled explicitly, the claim is less vulnerable to background-specific overgeneralization."
+                : "Because biological modifiers were incompletely handled, the claim should remain bounded to the tested background.";
+
+            return `In the QMO decision-tree framework, ${intervention.toLowerCase()} in ${model.toLowerCase()} supports the interpretation: ${assessment.claim.title.toLowerCase()}. The current evidence path yields a translational confidence score of ${assessment.score}/100, but the claim should be governed by the limiting decision points rather than by the numeric score alone. ${assessment.claim.interpretation} ${modifierText} ${missingText} Accordingly, manuscript language should state the observed benefit while avoiding broader dementia-level or disease-modifying claims unless the missing outcome domains are directly addressed.`;
+        }
+
+        function downloadMarkdown(assessment, answers, context) {
+            const lines = [
+                "# QMO Decision Tree Simulator Report",
+                "",
+                `Model class: ${context.modelClass || "Not specified"}`,
+                `Intervention class: ${context.interventionClass || "Not specified"}`,
+                `Score: ${assessment.score}/100`,
+                `Claim: ${assessment.claim.title}`,
+                "",
+                "## Decision Path",
+                ...steps.map(step => `- ${step.title}: ${getSelectedLabel(step, answers)}`),
+                "",
+                "## Recommended Wording",
+                assessment.claim.wording,
+                "",
+                "## Missing or Weak Evidence",
+                ...(assessment.missing.length ? assessment.missing.map(item => `- ${item}`) : ["- None flagged."]),
+                "",
+                "## Draft Paragraph",
+                makeDraft(assessment, answers, context)
+            ];
+            const blob = new Blob([lines.join("\n")], { type: "text/markdown" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = "qmo-decision-report.md";
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        function DecisionTreeSimulator() {
+            const [answers, setAnswers] = useState({});
+            const [context, setContext] = useState({
+                modelClass: modelClasses[0],
+                interventionClass: interventionClasses[0]
+            });
+
+            const assessment = useMemo(() => buildAssessment(answers, context), [answers, context]);
+            const draft = useMemo(() => makeDraft(assessment, answers, context), [assessment, answers, context]);
+
+            const answeredCount = Object.keys(answers).length;
+            const activeIndex = Math.min(answeredCount, steps.length - 1);
+
+            const reset = () => setAnswers({});
+            const updateContext = event => setContext(prev => ({ ...prev, [event.target.name]: event.target.value }));
+            const setAnswer = (id, value) => setAnswers(prev => ({ ...prev, [id]: value }));
+
+            return (
+                <main className="min-h-screen text-slate-900">
+                    <section className="border-b border-slate-200 bg-white">
+                        <div className="mx-auto flex max-w-7xl flex-col gap-5 px-4 py-6 md:px-8">
+                            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                                <div>
+                                    <p className="text-xs font-bold uppercase tracking-[0.18em] text-sky-700">QMO Framework Companion Tool</p>
+                                    <h1 className="mt-2 text-3xl font-black tracking-normal text-slate-950 md:text-4xl">Decision Tree Simulator v2</h1>
+                                    <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+                                        Classify what an observed improvement in an animal model can legitimately support: symptomatic effect, target engagement, circuit preservation, or disease-modifying interpretation.
+                                    </p>
+                                </div>
+                                <button onClick={reset} className="inline-flex h-11 items-center justify-center gap-2 rounded-md border border-slate-300 bg-white px-4 text-sm font-bold text-slate-700 hover:bg-slate-50">
+                                    <i className="fas fa-rotate-right"></i>
+                                    Reset
+                                </button>
+                            </div>
+
+                            <div className="grid gap-3 md:grid-cols-2">
+                                <label className="text-sm font-semibold text-slate-700">
+                                    Model class
+                                    <select name="modelClass" value={context.modelClass} onChange={updateContext} className="mt-2 h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-800">
+                                        {modelClasses.map(item => <option key={item}>{item}</option>)}
+                                    </select>
+                                </label>
+                                <label className="text-sm font-semibold text-slate-700">
+                                    Intervention class
+                                    <select name="interventionClass" value={context.interventionClass} onChange={updateContext} className="mt-2 h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-800">
+                                        {interventionClasses.map(item => <option key={item}>{item}</option>)}
+                                    </select>
+                                </label>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section className="mx-auto grid max-w-7xl gap-6 px-4 py-6 md:px-8 lg:grid-cols-[minmax(0,1.45fr)_minmax(360px,0.75fr)]">
+                        <div className="space-y-4">
+                            {steps.map((step, index) => {
+                                const enabled = index === 0 || Boolean(answers[steps[index - 1].id]);
+                                const complete = Boolean(answers[step.id]);
+                                return (
+                                    <article key={step.id} className={`rounded-md border bg-white p-5 shadow-sm ${enabled ? "border-slate-200" : "border-slate-200 opacity-55"}`}>
+                                        <div className="flex items-start gap-4">
+                                            <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-md ${complete ? "bg-sky-100 text-sky-700" : index === activeIndex ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-500"}`}>
+                                                <i className={`fas ${step.icon}`}></i>
+                                            </div>
+                                            <div className="min-w-0 flex-1">
+                                                <h2 className="text-base font-black text-slate-950">{step.title}</h2>
+                                                <p className="mt-1 text-sm leading-6 text-slate-600">{step.description}</p>
+                                                <div className="mt-4 grid gap-2">
+                                                    {step.options.map(option => (
+                                                        <button
+                                                            key={option.value}
+                                                            disabled={!enabled}
+                                                            onClick={() => setAnswer(step.id, option.value)}
+                                                            className={`flex min-h-12 items-center justify-between gap-3 rounded-md border px-4 py-3 text-left text-sm font-semibold transition ${answers[step.id] === option.value ? "border-sky-600 bg-sky-50 text-sky-900" : "border-slate-200 bg-white text-slate-700 hover:border-sky-300 hover:bg-slate-50"} disabled:cursor-not-allowed`}
+                                                        >
+                                                            <span>{option.label}</span>
+                                                            <span className="shrink-0 text-xs font-black text-slate-500">{option.points} pts</span>
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </article>
+                                );
+                            })}
+                        </div>
+
+                        <aside className="space-y-4 lg:sticky lg:top-4 lg:self-start">
+                            <section className="rounded-md border border-slate-200 bg-white p-5 shadow-sm">
+                                <div className="flex items-end justify-between">
+                                    <div>
+                                        <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Translational Confidence</p>
+                                        <div className="mt-1 flex items-end gap-2">
+                                            <span className="text-5xl font-black text-sky-700">{assessment.score}</span>
+                                            <span className="pb-1 text-lg font-bold text-slate-400">/100</span>
+                                        </div>
+                                    </div>
+                                    <p className="pb-2 text-sm font-bold text-slate-500">{answeredCount}/{steps.length}</p>
+                                </div>
+                                <div className="mt-4 h-2.5 w-full rounded-full bg-slate-200">
+                                    <div className="h-2.5 rounded-full bg-sky-700 transition-all" style={{ width: `${assessment.score}%` }}></div>
+                                </div>
+                            </section>
+
+                            <section className={`rounded-md border-2 p-5 shadow-sm ${palettes[assessment.claim.type]}`}>
+                                <div className="flex items-start gap-3">
+                                    <i className="fas fa-scale-balanced mt-1 text-2xl"></i>
+                                    <div>
+                                        <h2 className="text-lg font-black leading-tight">{assessment.claim.title}</h2>
+                                        <p className="mt-3 text-sm font-semibold leading-6">{assessment.claim.interpretation}</p>
+                                        <p className="mt-3 text-sm leading-6 opacity-90">{assessment.claim.wording}</p>
+                                    </div>
+                                </div>
+                            </section>
+
+                            <section className="rounded-md border border-slate-200 bg-white p-5 shadow-sm">
+                                <h3 className="text-sm font-black uppercase tracking-[0.14em] text-slate-500">Active Decision Path</h3>
+                                <div className="mt-4 space-y-3">
+                                    {assessment.path.map((item, index) => (
+                                        <div key={item.id} className="grid grid-cols-[28px_1fr] gap-3">
+                                            <div className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-black ${item.complete ? "bg-sky-700 text-white" : index === activeIndex ? "bg-amber-500 text-white" : "bg-slate-200 text-slate-500"}`}>
+                                                {index + 1}
+                                            </div>
+                                            <div>
+                                                <p className="text-sm font-black text-slate-800">{item.short}</p>
+                                                <p className="text-xs leading-5 text-slate-600">{item.label}</p>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </section>
+
+                            <section className="rounded-md border border-slate-200 bg-white p-5 shadow-sm">
+                                <h3 className="text-sm font-black uppercase tracking-[0.14em] text-slate-500">Missing or Weak Evidence</h3>
+                                <ul className="mt-3 space-y-2 text-sm leading-6 text-slate-700">
+                                    {assessment.missing.slice(0, 6).map(item => (
+                                        <li key={item} className="flex gap-2">
+                                            <i className="fas fa-circle-exclamation mt-1 text-amber-600"></i>
+                                            <span>{item}</span>
+                                        </li>
+                                    ))}
+                                </ul>
+                            </section>
+
+                            {assessment.warnings.length > 0 && (
+                                <section className="rounded-md border border-amber-200 bg-amber-50 p-5 shadow-sm">
+                                    <h3 className="text-sm font-black uppercase tracking-[0.14em] text-amber-800">Overclaim Alerts</h3>
+                                    <ul className="mt-3 space-y-2 text-sm leading-6 text-amber-950">
+                                        {assessment.warnings.map(item => (
+                                            <li key={item} className="flex gap-2">
+                                                <i className="fas fa-triangle-exclamation mt-1"></i>
+                                                <span>{item}</span>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </section>
+                            )}
+
+                            <section className="rounded-md border border-slate-200 bg-white p-5 shadow-sm">
+                                <div className="flex items-center justify-between gap-3">
+                                    <h3 className="text-sm font-black uppercase tracking-[0.14em] text-slate-500">Manuscript Paragraph</h3>
+                                    <button onClick={() => navigator.clipboard?.writeText(draft)} className="inline-flex h-9 items-center justify-center rounded-md border border-slate-300 px-3 text-xs font-black text-slate-700 hover:bg-slate-50">
+                                        <i className="fas fa-copy mr-2"></i> Copy
+                                    </button>
+                                </div>
+                                <p className="mt-3 text-sm leading-6 text-slate-700">{draft}</p>
+                                <button onClick={() => downloadMarkdown(assessment, answers, context)} className="mt-4 inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-slate-900 px-4 text-sm font-black text-white hover:bg-slate-800">
+                                    <i className="fas fa-file-arrow-down"></i>
+                                    Download Markdown Report
+                                </button>
+                            </section>
+                        </aside>
+                    </section>
+                </main>
+            );
+        }
+
+        ReactDOM.createRoot(document.getElementById("root")).render(<DecisionTreeSimulator />);
+    </script>
+</body>
+</html>
